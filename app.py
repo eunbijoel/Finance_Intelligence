@@ -1,4 +1,4 @@
-"""Finance Intelligence — AI 기업검토 Cockpit."""
+"""Finance Intelligence — AI 기업 검토."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ for key, default in [
     ("cached_uploads", []),
     ("viewing_history", False),
     ("selected_analysis", None),
-    ("active_tab", "cockpit"),
+    ("active_tab", "review"),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -118,7 +118,7 @@ def _data_source_label(company: dict) -> str:
 
 def render_header() -> None:
     st.markdown('<div class="fi-title">Finance Intelligence</div>', unsafe_allow_html=True)
-    st.markdown('<div class="fi-subtitle">AI 기업검토 Cockpit · 심사역 검토 보조 (승인/거절 판단 아님)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fi-subtitle">AI 기업 검토 · 심사역 검토 보조 (승인/거절 판단 아님)</div>', unsafe_allow_html=True)
     if USE_DART_MOCK:
         st.markdown('<span class="fi-badge fi-badge-mock">샘플 데이터 모드</span>', unsafe_allow_html=True)
 
@@ -195,7 +195,7 @@ def render_history_view() -> None:
     if st.button("현재 분석으로 돌아가기", type="primary"):
         st.session_state.viewing_history = False
         st.session_state.selected_analysis = None
-        st.session_state.active_tab = "cockpit"
+        st.session_state.active_tab = "review"
         st.rerun()
 
 
@@ -249,8 +249,8 @@ def render_status_cards(ws: Any, financials: pd.DataFrame, disclosures: list) ->
         st.markdown(f'<div class="fi-card-sm"><div class="fi-muted">근거 충족도</div><div>{coverage}</div></div>', unsafe_allow_html=True)
 
 
-def render_cockpit() -> None:
-    st.markdown("## 기업 Intelligence Cockpit")
+def render_review_home() -> None:
+    st.markdown("## 기업 검토")
     company = st.session_state.company
     financials = st.session_state.financials
     disclosures = st.session_state.get("disclosures", [])
@@ -509,12 +509,12 @@ def main() -> None:
         render_history_view()
         return
 
-    tab_cockpit, tab_docs, tab_ws = st.tabs(["기업검토 Cockpit", "기업자료 검토", "Agent Workspace"])
+    tab_review, tab_docs, tab_ws = st.tabs(["기업 검토", "기업자료 검토", "Agent Workspace"])
 
     with tab_docs:
         st.session_state.cached_uploads = render_document_review()
-    with tab_cockpit:
-        render_cockpit()
+    with tab_review:
+        render_review_home()
     with tab_ws:
         render_credit_workspace()
 

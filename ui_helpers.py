@@ -1,4 +1,4 @@
-"""Display formatting, cockpit intelligence, and report generation."""
+"""Display formatting, review summaries, and report generation."""
 
 from __future__ import annotations
 

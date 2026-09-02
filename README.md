@@ -19,7 +19,7 @@ DART API 키가 없어도 **삼성전자(005930) 샘플 데이터**로 실행 �
 
 ## 화면
 
-1. **기업검토 Cockpit** — AI 검토 상태, 재무 변화, 위험 신호, Intelligence 요약
+1. **기업 검토** — AI 검토 상태, 재무 변화, 위험 신호, 요약
 2. **기업자료 검토** — PDF/DOCX/XLSX/CSV/TXT 업로드 및 다중 문서 근거 추출
 3. **Agent Workspace** — Agent 워크플로우, 교차검증, 근거 검증, Markdown 보고서
 
