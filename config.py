@@ -19,10 +19,12 @@ DART_API_KEY = os.getenv("DART_API_KEY", "").strip()
 # Ignore placeholder values from templates
 if DART_API_KEY.lower() in {"your_opendart_api_key", "changeme", "xxx"}:
     DART_API_KEY = ""
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
-LLM_TIMEOUT_SEC = int(os.getenv("LLM_TIMEOUT_SEC", "120"))
+LLM_MODEL = os.getenv("LLM_MODEL", "gemma4:31b").strip() or "gemma4:31b"
+LLM_TIMEOUT_SEC = int(os.getenv("LLM_TIMEOUT_SEC", "300"))
 MOCK_LLM = os.getenv("FI_MOCK_LLM", "false").lower() in {"1", "true", "yes"}
 
 USE_DART_MOCK = not DART_API_KEY

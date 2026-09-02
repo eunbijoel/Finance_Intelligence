@@ -9,7 +9,16 @@ from typing import Any
 import pandas as pd
 import requests
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_SEC, MOCK_LLM, REVIEW_STATUSES
+from config import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+    LLM_PROVIDER,
+    LLM_TIMEOUT_SEC,
+    MOCK_LLM,
+    OLLAMA_BASE_URL,
+    REVIEW_STATUSES,
+)
 from dart_client import DartClient
 from document_parser import extract_business_fields, merge_document_fields, parse_uploaded_file, get_field_primary_content
 from financial_analysis import (
@@ -52,16 +61,61 @@ class WorkflowState:
     errors: list[str] = field(default_factory=list)
 
 
-# --- LLM adapter (mock-capable) ---
+# --- LLM adapter (Ollama default, OpenAI-compatible optional, mock fallback) ---
 
 
 def llm_available() -> bool:
-    return bool(LLM_BASE_URL and LLM_API_KEY and not MOCK_LLM)
+    if MOCK_LLM:
+        return False
+    if LLM_PROVIDER == "ollama":
+        try:
+            resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+            return resp.status_code == 200
+        except Exception:  # noqa: BLE001
+            return False
+    return bool(LLM_BASE_URL and LLM_API_KEY)
 
 
 def generate_text(prompt: str) -> str:
-    if MOCK_LLM or not LLM_BASE_URL:
+    if MOCK_LLM:
         return _mock_llm_response(prompt)
+    if LLM_PROVIDER == "ollama":
+        return _generate_ollama(prompt)
+    if LLM_BASE_URL:
+        return _generate_openai_compatible(prompt)
+    return _mock_llm_response(prompt)
+
+
+def _generate_ollama(prompt: str) -> str:
+    system = (
+        "You are a financial credit review assistant for Korean corporate analysis. "
+        "Never invent numbers or facts. Use only the evidence provided in the prompt. "
+        "Respond in Korean unless asked otherwise."
+    )
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "options": {"temperature": 0.2},
+    }
+    url = f"{OLLAMA_BASE_URL}/api/chat"
+    try:
+        resp = requests.post(url, json=payload, timeout=LLM_TIMEOUT_SEC)
+        resp.raise_for_status()
+        data = resp.json()
+        content = (data.get("message") or {}).get("content", "")
+        if content:
+            return content.strip()
+        # fallback for /api/generate-style response
+        return (data.get("response") or "").strip() or _mock_llm_response(prompt)
+    except Exception as exc:  # noqa: BLE001
+        raise LLMConnectionError(f"Ollama call failed ({LLM_MODEL} @ {OLLAMA_BASE_URL}): {exc}") from exc
+
+
+def _generate_openai_compatible(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json",
@@ -267,7 +321,7 @@ def step_draft_memo(state: WorkflowState) -> WorkflowState:
         "summary": _build_summary(state, overall),
     }
 
-    if llm_available() or MOCK_LLM:
+    if llm_available():
         try:
             llm_text = generate_text(
                 "다음 근거만 사용해 종합 검토 메모 초안을 5문장 이내로 작성하세요. 수치를 새로 만들지 마세요.\n"

@@ -36,11 +36,36 @@ pytest tests/ -v
 | 변수 | 설명 |
 |------|------|
 | `DART_API_KEY` | OpenDART API 키 |
-| `LLM_BASE_URL` | LLM API URL (선택) |
-| `LLM_API_KEY` | LLM API 키 (선택) |
-| `LLM_MODEL` | LLM 모델명 |
-| `FI_MOCK_LLM` | `true` 시 mock LLM |
+| `LLM_PROVIDER` | `ollama`(기본) 또는 `openai` |
+| `OLLAMA_BASE_URL` | Ollama 서버 URL (기본 `http://127.0.0.1:11434`) |
+| `LLM_MODEL` | Ollama 모델명 (기본 `gemma4:31b`) |
+| `LLM_BASE_URL` | OpenAI 호환 API URL (`LLM_PROVIDER=openai`일 때) |
+| `LLM_API_KEY` | OpenAI 호환 API 키 (Ollama는 불필요) |
+| `FI_MOCK_LLM` | `true` 시 LLM 호출 없이 mock 응답 |
 | `FI_DB_PATH` | SQLite DB 경로 (선택) |
+
+## LLM (Ollama — 기본)
+
+기본적으로 **로컬 Ollama** + **`gemma4:31b`** 를 사용합니다. API 키는 필요 없습니다.
+
+```bash
+# Ollama 실행 및 모델 준비 (예시)
+ollama pull gemma4:31b
+ollama serve
+```
+
+`.env` 예시 (선택 — 기본값으로도 동작):
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+LLM_MODEL=gemma4:31b
+```
+
+Ollama가 꺼져 있으면 규칙 기반 결과만 사용하고, LLM 서술은 생략됩니다.  
+강제 mock: `FI_MOCK_LLM=true`
+
+외부 OpenAI 호환 API를 쓰려면 `LLM_PROVIDER=openai`와 `LLM_BASE_URL`, `LLM_API_KEY`를 설정하세요.
 
 ## OpenDART 연결
 

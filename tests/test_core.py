@@ -169,3 +169,10 @@ def test_markdown_report_generation(sample_financials):
     )
     assert "면책" in md
     assert "테스트" in md
+
+
+def test_ollama_default_config():
+    import config
+    assert config.LLM_PROVIDER == "ollama"
+    assert config.LLM_MODEL == "gemma4:31b"
+    assert "11434" in config.OLLAMA_BASE_URL
