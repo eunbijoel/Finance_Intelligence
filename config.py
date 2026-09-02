@@ -7,13 +7,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "finance_intelligence.db"
 
+# Always load from project root — Streamlit cwd may differ from app directory.
+load_dotenv(BASE_DIR / ".env")
+
 DART_API_KEY = os.getenv("DART_API_KEY", "").strip()
+# Ignore placeholder values from templates
+if DART_API_KEY.lower() in {"your_opendart_api_key", "changeme", "xxx"}:
+    DART_API_KEY = ""
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()

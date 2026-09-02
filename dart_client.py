@@ -110,18 +110,17 @@ class DartClient:
         if self.use_mock:
             self._corp_index = [SAMPLE_COMPANY]
             return self._corp_index
-        raw = self._get("corpCode.xml", {})
-        # corpCode.xml returns zip even on error sometimes; handle zip
-        if isinstance(raw, dict) and raw.get("status") != "000":
-            self._corp_index = []
-            return self._corp_index
-        # When using requests directly for zip:
+        # corpCode.xml returns a ZIP archive, not JSON
         resp = requests.get(
             f"{DART_BASE}/corpCode.xml",
             params={"crtfc_key": self.api_key},
-            timeout=60,
+            timeout=120,
         )
         resp.raise_for_status()
+        if resp.headers.get("Content-Type", "").startswith("application/json"):
+            err = resp.json()
+            self._corp_index = []
+            return self._corp_index
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             xml_name = [n for n in zf.namelist() if n.endswith(".xml")][0]
             xml_text = zf.read(xml_name).decode("utf-8")
@@ -149,9 +148,13 @@ class DartClient:
                 return {**SAMPLE_COMPANY, "source": "mock"}
             return None
         corps = self._load_corp_index()
+        if not corps:
+            return None
+        stock_query = query.zfill(6) if query.isdigit() else query
         # exact stock code
         for c in corps:
-            if c.get("stock_code") == query:
+            code = (c.get("stock_code") or "").strip()
+            if code and code == stock_query:
                 return {**c, "source": "dart"}
         # name contains
         for c in corps:
@@ -160,7 +163,7 @@ class DartClient:
         return None
 
     def get_financials(self, corp_code: str, years: int = 3) -> pd.DataFrame:
-        if self.use_mock or corp_code == SAMPLE_COMPANY["corp_code"]:
+        if self.use_mock:
             rows = SAMPLE_FINANCIALS[-years:]
             return pd.DataFrame(rows)
         # Simplified: fetch single consolidated statements for recent years
@@ -191,7 +194,7 @@ class DartClient:
         return pd.DataFrame(frames).sort_values("year")
 
     def get_recent_disclosures(self, corp_code: str, count: int = 5) -> list[dict[str, Any]]:
-        if self.use_mock or corp_code == SAMPLE_COMPANY["corp_code"]:
+        if self.use_mock:
             return SAMPLE_DISCLOSURES[:count]
         end_de = "20251231"
         begin_de = "20240101"

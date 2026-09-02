@@ -88,7 +88,10 @@ def render_header() -> None:
         unsafe_allow_html=True,
     )
     if USE_DART_MOCK:
-        st.info("DART API 키 없음 — 삼성전자 샘플 데이터(mock) 사용 중")
+        st.warning(
+            "DART API 키가 로드되지 않아 샘플(mock) 데이터를 사용 중입니다. "
+            "`finance_intelligence/.env` 파일에 `DART_API_KEY=발급키`를 넣고 앱을 재시작하세요."
+        )
 
 
 def render_sidebar() -> None:
