@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from config import RISK_THRESHOLDS
+from document_parser import get_field_entries, get_field_primary_content
 
 
 def _safe_div(numerator: float | None, denominator: float | None) -> float | None:
@@ -98,8 +99,8 @@ def detect_risk_signals(
     years = df["year"].tolist()
     by_year = ratios.get("by_year", {})
     doc = document_fields or {}
-
-    # CF_NEGATIVE_2Y
+    rev_content = get_field_primary_content(doc, "revenue_outlook")
+    plan_rev = _extract_numeric_from_text(rev_content) if rev_content else None
     if len(df) >= 2:
         last_two = df.tail(2)
         if all((row.get("operating_cash_flow") or 0) < 0 for _, row in last_two.iterrows()):
@@ -237,7 +238,6 @@ def detect_risk_signals(
                 )
 
     # PLAN_REVENUE_OPTIMISTIC
-    plan_rev = _extract_numeric_from_text(doc.get("revenue_outlook", {}).get("content", ""))
     if plan_rev and len(df) >= 2:
         rev_series = df["revenue"].dropna()
         if len(rev_series) >= 2:
@@ -284,7 +284,7 @@ def detect_risk_signals(
         ("fund_purpose", "자금 사용 목적"),
         ("repayment_plan", "상환 계획"),
     ):
-        content = (doc.get(key) or {}).get("content", "").strip()
+        content = get_field_primary_content(doc, key).strip()
         if not content or content.startswith("문서에서 확인되지"):
             missing.append(label)
     if missing:
@@ -357,16 +357,257 @@ def _extract_numeric_from_text(text: str) -> dict[str, Any] | None:
     if not text:
         return None
     growth = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
-    amount = re.search(r"(\d{1,3}(?:,\d{3})+|\d+)\s*(?:억|조|원)?", text)
+    year = re.search(r"(20\d{2})\s*년", text)
     result: dict[str, Any] = {}
     if growth:
         result["growth_pct"] = float(growth.group(1))
-    if amount:
-        raw = amount.group(1).replace(",", "")
+    if year:
+        result["year"] = int(year.group(1))
+    amount_match = re.search(
+        r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(조|억|만|백만)\s*원?",
+        text,
+    )
+    if amount_match:
+        raw = amount_match.group(1).replace(",", "")
         val = float(raw)
-        if "조" in text:
-            val *= 1_000_000_000_000
-        elif "억" in text:
-            val *= 100_000_000
-        result["amount"] = val
+        unit = amount_match.group(2)
+        mult = {"조": 1_000_000_000_000, "억": 100_000_000, "백만": 1_000_000, "만": 10_000}
+        result["amount"] = int(val * mult.get(unit, 1))
     return result or None
+
+
+def compute_yoy_changes(financials: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compare latest two years for key metrics."""
+    if financials.empty or len(financials) < 2:
+        return []
+    df = financials.sort_values("year")
+    prev, curr = df.iloc[-2], df.iloc[-1]
+    metrics = [
+        ("revenue", "매출액"),
+        ("operating_income", "영업이익"),
+        ("net_income", "당기순이익"),
+        ("operating_cash_flow", "영업현금흐름"),
+    ]
+    changes = []
+    for col, label in metrics:
+        chg = _pct_change(curr.get(col), prev.get(col))
+        if chg is not None:
+            changes.append({"metric": col, "label": label, "change_pct": round(chg, 1), "period": str(int(curr["year"]))})
+    return changes
+
+
+def compute_ratio_changes(ratios: dict[str, Any]) -> list[dict[str, Any]]:
+    by_year = ratios.get("by_year", {})
+    if len(by_year) < 2:
+        return []
+    years = sorted(by_year.keys())
+    prev_y, curr_y = years[-2], years[-1]
+    changes = []
+    for key, label in (("debt_ratio", "부채비율"), ("current_ratio", "유동비율")):
+        pv = (by_year[prev_y].get(key) or {}).get("value")
+        cv = (by_year[curr_y].get(key) or {}).get("value")
+        if pv is not None and cv is not None:
+            changes.append({
+                "metric": key,
+                "label": label,
+                "delta_pp": round(cv - pv, 1),
+                "prev_year": prev_y,
+                "curr_year": curr_y,
+            })
+    return changes
+
+
+def run_cross_validation(
+    financials: pd.DataFrame,
+    document_fields: dict[str, Any],
+    company: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Structured cross-validation between documents and DART data."""
+    checks: list[dict[str, Any]] = []
+    company = company or {}
+
+    # Revenue plan vs actual
+    rev_entries = get_field_entries(document_fields, "revenue_outlook")
+    if rev_entries and not financials.empty:
+        latest = financials.sort_values("year").iloc[-1]
+        dart_year = str(int(latest["year"]))
+        dart_rev = latest.get("revenue")
+        for entry in rev_entries:
+            parsed = _extract_numeric_from_text(entry.get("content", ""))
+            if not parsed or parsed.get("amount") is None:
+                checks.append({
+                    "check_id": "REVENUE_PLAN_VS_ACTUAL",
+                    "metric": "매출액",
+                    "document_source": entry.get("source_file"),
+                    "document_period": str(parsed.get("year")) if parsed and parsed.get("year") else None,
+                    "document_value": None,
+                    "dart_period": dart_year,
+                    "dart_value": dart_rev,
+                    "status": "NEEDS_REVIEW",
+                    "reason": "문서에서 매출 수치를 안전하게 추출하지 못했습니다.",
+                    "evidence": entry.get("evidence") or [],
+                })
+                continue
+            doc_year = parsed.get("year")
+            doc_val = parsed["amount"]
+            if doc_year and int(doc_year) != int(dart_year):
+                checks.append({
+                    "check_id": "REVENUE_PLAN_VS_ACTUAL",
+                    "metric": "매출액",
+                    "document_source": entry.get("source_file"),
+                    "document_period": str(doc_year),
+                    "document_value": doc_val,
+                    "dart_period": dart_year,
+                    "dart_value": dart_rev,
+                    "status": "NEEDS_REVIEW",
+                    "reason": f"기준연도 확인 필요 (문서 {doc_year}년 vs 공시 {dart_year}년)",
+                    "evidence": entry.get("evidence") or [],
+                })
+            elif dart_rev:
+                diff = doc_val - dart_rev
+                diff_pct = abs(diff) / dart_rev * 100
+                status = "REVIEW_REQUIRED" if diff_pct >= RISK_THRESHOLDS["plan_financial_mismatch_pct"] else "CONFIRMED"
+                checks.append({
+                    "check_id": "REVENUE_PLAN_VS_ACTUAL",
+                    "metric": "매출액",
+                    "document_source": entry.get("source_file"),
+                    "document_period": str(doc_year or dart_year),
+                    "document_value": doc_val,
+                    "dart_period": dart_year,
+                    "dart_value": dart_rev,
+                    "difference": diff,
+                    "difference_pct": round(diff_pct, 2),
+                    "status": status,
+                    "reason": (
+                        f"사업계획 매출이 공시 매출보다 {diff_pct:.1f}% {'높습니다' if diff > 0 else '낮습니다'}."
+                        if status == "REVIEW_REQUIRED"
+                        else "동일 기준연도 매출 수치가 유사합니다."
+                    ),
+                    "evidence": entry.get("evidence") or [],
+                })
+
+    # Document-to-document revenue mismatch
+    if len(rev_entries) >= 2:
+        parsed_vals = []
+        for entry in rev_entries:
+            p = _extract_numeric_from_text(entry.get("content", ""))
+            if p and p.get("amount") is not None:
+                parsed_vals.append((entry, p))
+        for i in range(len(parsed_vals)):
+            for j in range(i + 1, len(parsed_vals)):
+                e1, p1 = parsed_vals[i]
+                e2, p2 = parsed_vals[j]
+                y1, y2 = p1.get("year"), p2.get("year")
+                if y1 and y2 and y1 != y2:
+                    continue
+                v1, v2 = p1["amount"], p2["amount"]
+                if v1 != v2:
+                    checks.append({
+                        "check_id": "DOC_REVENUE_MISMATCH",
+                        "metric": "매출 전망",
+                        "document_source": f"{e1.get('source_file')} vs {e2.get('source_file')}",
+                        "document_value": v1,
+                        "document_value_2": v2,
+                        "difference": abs(v1 - v2),
+                        "status": "CONFLICT",
+                        "reason": "문서 간 매출 전망 수치가 다릅니다.",
+                        "evidence": (e1.get("evidence") or []) + (e2.get("evidence") or []),
+                    })
+
+    # Text fields: fund purpose, repayment, customers, company name, business period
+    text_checks = [
+        ("fund_purpose", "자금 사용 목적"),
+        ("repayment_plan", "상환 계획"),
+        ("major_customers", "주요 거래처"),
+        ("company_overview", "기업명"),
+        ("business_purpose", "사업 기간"),
+    ]
+    for key, metric in text_checks:
+        entries = get_field_entries(document_fields, key)
+        if not entries:
+            checks.append({
+                "check_id": f"TEXT_{key.upper()}",
+                "metric": metric,
+                "status": "MISSING",
+                "reason": f"문서에서 {metric}이(가) 확인되지 않습니다.",
+                "evidence": [],
+            })
+        else:
+            for entry in entries:
+                status = "CONFIRMED" if entry.get("evidence") else "NEEDS_REVIEW"
+                checks.append({
+                    "check_id": f"TEXT_{key.upper()}",
+                    "metric": metric,
+                    "document_source": entry.get("source_file"),
+                    "status": status,
+                    "reason": f"{metric} 확인됨" if status == "CONFIRMED" else f"{metric}는 있으나 근거 위치가 불명확합니다.",
+                    "content_excerpt": entry.get("content", "")[:200],
+                    "evidence": entry.get("evidence") or [],
+                })
+
+    # Company name cross-check
+    corp_name = company.get("corp_name", "")
+    overview_entries = get_field_entries(document_fields, "company_overview")
+    for entry in overview_entries:
+        content = entry.get("content", "")
+        if corp_name and corp_name.replace("(주)", "") not in content and corp_name not in content:
+            checks.append({
+                "check_id": "COMPANY_NAME_MISMATCH",
+                "metric": "기업명",
+                "document_source": entry.get("source_file"),
+                "dart_value": corp_name,
+                "document_excerpt": content[:100],
+                "status": "NEEDS_REVIEW",
+                "reason": "문서의 기업명과 DART 기업명이 일치하지 않을 수 있습니다.",
+                "evidence": entry.get("evidence") or [],
+            })
+
+    return checks
+
+
+def verify_claims(
+    financials: pd.DataFrame,
+    yoy_changes: list[dict[str, Any]],
+    document_fields: dict[str, Any],
+    cross_checks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Verify memo claims against available evidence."""
+    verifications: list[dict[str, Any]] = []
+
+    for ch in yoy_changes:
+        claim = f"{ch['label']}은(는) 전년 대비 {abs(ch['change_pct'])}% {'증가' if ch['change_pct'] > 0 else '감소'}"
+        if financials.empty or len(financials) < 2:
+            verifications.append({"claim": claim, "status": "unsupported", "evidence": []})
+            continue
+        df = financials.sort_values("year")
+        prev, curr = df.iloc[-2], df.iloc[-1]
+        metric = ch["metric"]
+        verifications.append({
+            "claim": claim,
+            "status": "supported",
+            "evidence": [
+                {"source": "DART 재무제표", "period": str(int(prev["year"])), "metric": metric, "value": prev.get(metric)},
+                {"source": "DART 재무제표", "period": str(int(curr["year"])), "metric": metric, "value": curr.get(metric)},
+            ],
+        })
+
+    for entry in get_field_entries(document_fields, "revenue_outlook"):
+        claim = f"문서({entry.get('source_file')}) 매출 전망: {entry.get('content', '')[:80]}"
+        ev = entry.get("evidence") or []
+        has_loc = any(ev_item.get("page") or ev_item.get("sheet") or ev_item.get("location") for ev_item in ev)
+        if ev and has_loc:
+            status = "supported"
+        elif ev:
+            status = "partial"
+        else:
+            status = "unsupported"
+        verifications.append({"claim": claim, "status": status, "evidence": ev})
+
+    for ck in cross_checks:
+        if ck.get("status") in {"REVIEW_REQUIRED", "CONFLICT", "NEEDS_REVIEW"}:
+            claim = ck.get("reason", "")
+            ev = ck.get("evidence") or []
+            status = "supported" if ev else "partial" if ck.get("dart_value") else "unsupported"
+            verifications.append({"claim": claim, "status": status, "evidence": ev})
+
+    return verifications

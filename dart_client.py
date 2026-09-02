@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -88,6 +89,13 @@ SAMPLE_DISCLOSURES = [
         "flr_nm": "삼성전자",
     },
 ]
+
+
+def disclosure_date_range(reference: date | None = None) -> tuple[str, str]:
+    """Return (begin_de, end_de) as YYYYMMDD for the last 2 years through today."""
+    today = reference or date.today()
+    start = today - timedelta(days=365 * 2)
+    return start.strftime("%Y%m%d"), today.strftime("%Y%m%d")
 
 
 class DartClient:
@@ -196,20 +204,20 @@ class DartClient:
     def get_recent_disclosures(self, corp_code: str, count: int = 5) -> list[dict[str, Any]]:
         if self.use_mock:
             return SAMPLE_DISCLOSURES[:count]
-        end_de = "20251231"
-        begin_de = "20240101"
+        begin_de, end_de = disclosure_date_range()
         data = self._get(
             "list.json",
             {
                 "corp_code": corp_code,
                 "bgn_de": begin_de,
                 "end_de": end_de,
-                "page_count": count,
+                "page_count": 100,
             },
         )
         if data.get("status") != "000":
             return []
-        return data.get("list") or []
+        items = data.get("list") or []
+        return items[:count]
 
 
 def _parse_dart_accounts(rows: list[dict[str, Any]], year: int) -> dict[str, Any] | None:

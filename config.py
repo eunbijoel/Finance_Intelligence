@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "finance_intelligence.db"
+_default_db = DATA_DIR / "finance_intelligence.db"
+DB_PATH = Path(os.getenv("FI_DB_PATH", str(_default_db)))
 
 # Always load from project root — Streamlit cwd may differ from app directory.
 load_dotenv(BASE_DIR / ".env")
@@ -49,4 +50,5 @@ REVIEW_STATUSES = {
     "검토상 특이사항 없음",
     "추가 확인 필요",
     "중요 위험 신호 발견",
+    "분석 전",
 }

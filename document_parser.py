@@ -9,6 +9,15 @@ from typing import Any
 
 import pandas as pd
 
+__all__ = [
+    "parse_uploaded_file",
+    "extract_business_fields",
+    "merge_document_fields",
+    "get_field_entries",
+    "get_field_primary_content",
+    "FIELD_PATTERNS",
+]
+
 FIELD_PATTERNS: dict[str, list[str]] = {
     "company_overview": ["기업 개요", "회사 개요", "기업소개", "Company Overview"],
     "business_purpose": ["사업 목적", "사업의 목적", "프로젝트 목적"],
@@ -58,6 +67,69 @@ def extract_business_fields(parsed: dict[str, Any]) -> dict[str, Any]:
         "evidence": [],
     }
     return fields
+
+
+def merge_document_fields(all_fields: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge fields from multiple documents — preserve all entries per field."""
+    merged: dict[str, Any] = {}
+    all_missing: list[str] = []
+
+    for fields in all_fields:
+        for key, val in fields.items():
+            if key == "unverified_items":
+                content = (val or {}).get("content", "")
+                if content and content != "없음":
+                    for item in content.split(","):
+                        item = item.strip()
+                        if item and item not in all_missing:
+                            all_missing.append(item)
+                continue
+            entry = _as_field_entry(val)
+            if not entry:
+                continue
+            merged.setdefault(key, []).append(entry)
+
+    merged["unverified_items"] = {
+        "content": ", ".join(all_missing) if all_missing else "없음",
+        "evidence": [],
+    }
+    return merged
+
+
+def _as_field_entry(val: dict[str, Any] | list | None) -> dict[str, Any] | None:
+    if not isinstance(val, dict):
+        return None
+    content = val.get("content", "").strip()
+    if not content or content.startswith("문서에서 확인되지"):
+        return None
+    source_file = "unknown"
+    for ev in val.get("evidence") or []:
+        if ev.get("source_file"):
+            source_file = ev["source_file"]
+            break
+    return {
+        "source_file": source_file,
+        "content": content,
+        "evidence": val.get("evidence") or [],
+    }
+
+
+def get_field_entries(document_fields: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """Return field entries supporting legacy single-object and new list format."""
+    raw = document_fields.get(key)
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        entry = _as_field_entry(raw)
+        return [entry] if entry else []
+    return []
+
+
+def get_field_primary_content(document_fields: dict[str, Any], key: str) -> str:
+    entries = get_field_entries(document_fields, key)
+    return entries[0].get("content", "") if entries else ""
 
 
 def _find_field(parsed: dict[str, Any], labels: list[str]) -> dict[str, Any] | None:

@@ -11,8 +11,16 @@ import requests
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_SEC, MOCK_LLM, REVIEW_STATUSES
 from dart_client import DartClient
-from document_parser import extract_business_fields, parse_uploaded_file
-from financial_analysis import calculate_ratios, compare_analyses, detect_risk_signals
+from document_parser import extract_business_fields, merge_document_fields, parse_uploaded_file, get_field_primary_content
+from financial_analysis import (
+    calculate_ratios,
+    compare_analyses,
+    compute_ratio_changes,
+    compute_yoy_changes,
+    detect_risk_signals,
+    run_cross_validation,
+    verify_claims,
+)
 from database import get_latest_analysis, save_analysis
 
 
@@ -31,6 +39,9 @@ class WorkflowState:
     ratios: dict[str, Any] = field(default_factory=dict)
     risk_signals: list[dict[str, Any]] = field(default_factory=list)
     cross_checks: list[dict[str, Any]] = field(default_factory=list)
+    claim_verifications: list[dict[str, Any]] = field(default_factory=list)
+    yoy_changes: list[dict[str, Any]] = field(default_factory=list)
+    ratio_changes: list[dict[str, Any]] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     review_memo: dict[str, Any] = field(default_factory=dict)
     step_statuses: dict[str, str] = field(default_factory=dict)
@@ -119,22 +130,25 @@ def step_collect_dart_data(state: WorkflowState, dart: DartClient | None = None)
 def step_analyze_documents(state: WorkflowState, uploads: list[tuple[str, bytes]] | None = None) -> WorkflowState:
     state.step_statuses["analyze_documents"] = "RUNNING"
     parsed_docs = []
-    merged_fields: dict[str, Any] = {}
+    all_fields: list[dict[str, Any]] = []
     for filename, content in uploads or []:
         parsed = parse_uploaded_file(filename, content)
         fields = extract_business_fields(parsed)
-        parsed_docs.append({"filename": filename, "parsed": parsed, "fields": fields})
-        for k, v in fields.items():
-            if k == "unverified_items":
+        for ev in fields.get("unverified_items", {}).get("evidence") or []:
+            pass
+        # attach source filename to evidence
+        for fk, fv in fields.items():
+            if fk == "unverified_items":
                 continue
-            if (v or {}).get("content") and not str(v.get("content", "")).startswith("문서에서 확인되지"):
-                merged_fields[k] = v
-            elif k not in merged_fields:
-                merged_fields[k] = v
+            for ev in (fv or {}).get("evidence") or []:
+                ev["source_file"] = filename
+        all_fields.append(fields)
+        parsed_docs.append({"filename": filename, "parsed": parsed, "fields": fields})
         for ev in _collect_doc_evidence(fields):
             state.evidence.append(ev)
+    merged = merge_document_fields(all_fields) if all_fields else {}
     state.documents = parsed_docs
-    state.document_fields = merged_fields
+    state.document_fields = merged
     state.step_statuses["analyze_documents"] = "COMPLETED" if parsed_docs else "PENDING"
     return state
 
@@ -149,19 +163,9 @@ def step_calculate_ratios(state: WorkflowState) -> WorkflowState:
 
 def step_cross_validate(state: WorkflowState) -> WorkflowState:
     state.step_statuses["cross_validate"] = "RUNNING"
-    checks = []
-    rev_field = (state.document_fields.get("revenue_outlook") or {}).get("content", "")
-    if rev_field and not state.financials.empty:
-        latest_rev = state.financials.sort_values("year").iloc[-1].get("revenue")
-        checks.append(
-            {
-                "check": "매출 전망 vs 공시 매출",
-                "document_excerpt": rev_field[:200],
-                "disclosed_value": latest_rev,
-                "note": "문서 내 수치와 공시 매출의 기준연도 일치 여부를 확인하세요.",
-            }
-        )
-    state.cross_checks = checks
+    state.cross_checks = run_cross_validation(state.financials, state.document_fields, state.company)
+    for ck in state.cross_checks:
+        state.evidence.append({"source": "교차검증", **ck})
     state.step_statuses["cross_validate"] = "COMPLETED"
     return state
 
@@ -191,6 +195,14 @@ def step_verify_evidence(state: WorkflowState) -> WorkflowState:
         state.questions.append("재무정보 또는 사업계획서 중 하나 이상이 필요합니다.")
         state.step_statuses["verify_evidence"] = "NEEDS_MORE_INFORMATION"
         return state
+    state.yoy_changes = compute_yoy_changes(state.financials)
+    state.ratio_changes = compute_ratio_changes(state.ratios)
+    state.claim_verifications = verify_claims(
+        state.financials, state.yoy_changes, state.document_fields, state.cross_checks
+    )
+    unsupported = [v for v in state.claim_verifications if v.get("status") == "unsupported"]
+    if unsupported:
+        state.questions.extend([f"근거 확인 필요: {u['claim'][:60]}" for u in unsupported[:3]])
     state.step_statuses["verify_evidence"] = "COMPLETED"
     return state
 
@@ -235,13 +247,23 @@ def step_draft_memo(state: WorkflowState) -> WorkflowState:
             "4_positive_factors": positives or ["확인된 긍정 요인 없음 — 추가 검토 필요"],
             "5_risk_signals": [f"[{s['severity']}] {s['title']}: {s['description']}" for s in state.risk_signals]
             or ["탐지된 위험 신호 없음"],
-            "6_inconsistencies": [c["note"] for c in state.cross_checks] or ["교차검증 불일치 항목 없음"],
-            "7_follow_up": [s["review_question"] for s in state.risk_signals],
+            "6_inconsistencies": [
+                f"[{c.get('status')}] {c.get('metric')}: {c.get('reason', '')}" for c in state.cross_checks
+            ] or ["교차검증 불일치 항목 없음"],
+            "7_follow_up": list(dict.fromkeys([s["review_question"] for s in state.risk_signals]))[:5],
             "8_additional_documents": _additional_docs(state),
-            "9_reviewer_questions": [s["review_question"] for s in state.risk_signals][:5],
+            "9_reviewer_questions": list(dict.fromkeys([s["review_question"] for s in state.risk_signals]))[:5],
             "10_summary_draft": _build_summary(state, overall),
             "11_evidence_index": state.evidence,
+            "12_claim_verifications": state.claim_verifications,
+            "13_intelligence": {
+                "what_changed": [f"{c['label']} {c['change_pct']:+.1f}%" for c in state.yoy_changes],
+                "why_important": [],
+                "action_items": list(dict.fromkeys([s["review_question"] for s in state.risk_signals]))[:5],
+            },
         },
+        "claim_verifications": state.claim_verifications,
+        "unsupported_claims": [v for v in state.claim_verifications if v.get("status") == "unsupported"],
         "summary": _build_summary(state, overall),
     }
 
@@ -348,7 +370,11 @@ def _section_financials(state: WorkflowState) -> str:
 
 def _additional_docs(state: WorkflowState) -> list[str]:
     reqs = []
-    unverified = (state.document_fields.get("unverified_items") or {}).get("content", "")
+    unverified = get_field_primary_content(state.document_fields, "unverified_items")
+    if not unverified:
+        raw = state.document_fields.get("unverified_items")
+        if isinstance(raw, dict):
+            unverified = raw.get("content", "")
     if unverified and unverified != "없음":
         reqs.append(f"사업계획서 보완: {unverified}")
     if state.missing_items:
@@ -368,6 +394,11 @@ def _build_summary(state: WorkflowState, overall: str) -> str:
 def _collect_doc_evidence(fields: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for key, val in fields.items():
-        for ev in val.get("evidence") or []:
-            out.append({"source": "문서", "field": key, **ev})
+        if isinstance(val, list):
+            for entry in val:
+                for ev in entry.get("evidence") or []:
+                    out.append({"source": "문서", "field": key, **ev})
+        elif isinstance(val, dict):
+            for ev in val.get("evidence") or []:
+                out.append({"source": "문서", "field": key, **ev})
     return out

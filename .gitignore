@@ -4,5 +4,6 @@ __pycache__/
 pytest-of-*/
 *.pyc
 .env
+*.db
 data/*.db
 .DS_Store
