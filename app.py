@@ -35,29 +35,63 @@ st.set_page_config(page_title="Finance Intelligence", page_icon="FI", layout="wi
 st.markdown(
     """
 <style>
-    .stApp { background-color: #0f1724; color: #e2e8f0; }
-    [data-testid="stSidebar"] { background-color: #111827; }
-    .fi-card { background: #1a2332; border: 1px solid #2dd4bf33; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
-    .fi-card-sm { background: #1a2332; border-radius: 6px; padding: 10px 12px; text-align: center; }
-    .fi-title { color: #2dd4bf; font-weight: 700; font-size: 1.25rem; }
-    .fi-subtitle { color: #94a3b8; font-size: 0.9rem; }
-    .fi-muted { color: #94a3b8; font-size: 0.85rem; }
-    .fi-high { color: #f87171; }
-    .fi-medium { color: #fbbf24; }
-    .fi-low { color: #34d399; }
+    /* Streamlit Light/Dark 토글을 존중 — .stApp 배경은 건드리지 않음 */
+    [data-theme="dark"] .fi-card { background: #1a2332; border: 1px solid #2dd4bf33; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+    [data-theme="light"] .fi-card { background: #f8fafc; border: 1px solid #0d948833; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; color: #0f172a; }
+    [data-theme="dark"] .fi-card-sm { background: #1a2332; border-radius: 6px; padding: 10px 12px; text-align: center; }
+    [data-theme="light"] .fi-card-sm { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; text-align: center; color: #0f172a; }
+    .fi-title { color: #0d9488; font-weight: 700; font-size: 1.25rem; }
+    [data-theme="dark"] .fi-subtitle { color: #94a3b8; font-size: 0.9rem; }
+    [data-theme="light"] .fi-subtitle { color: #64748b; font-size: 0.9rem; }
+    [data-theme="dark"] .fi-muted { color: #94a3b8; font-size: 0.85rem; }
+    [data-theme="light"] .fi-muted { color: #64748b; font-size: 0.85rem; }
+    .fi-high { color: #dc2626; }
+    .fi-medium { color: #d97706; }
+    .fi-low { color: #059669; }
     .fi-muted-status { color: #64748b; }
-    .fi-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; background: #334155; color: #e2e8f0; }
-    .fi-badge-mock { background: #7c3aed33; color: #c4b5fd; border: 1px solid #7c3aed55; }
-    .fi-disclaimer { background: #1e293b; border-left: 4px solid #2dd4bf; padding: 10px 14px; margin: 10px 0; font-size: 0.9rem; }
-    .fi-step { display: inline-block; padding: 6px 10px; margin: 2px; border-radius: 4px; font-size: 0.75rem; background: #1e293b; }
-    .fi-step-done { border-bottom: 2px solid #34d399; }
-    .fi-step-warn { border-bottom: 2px solid #fbbf24; }
-    .fi-step-fail { border-bottom: 2px solid #f87171; }
-    .fi-header-name { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }
+    [data-theme="dark"] .fi-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; background: #334155; color: #e2e8f0; }
+    [data-theme="light"] .fi-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; background: #e2e8f0; color: #334155; }
+    .fi-badge-mock { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
+    [data-theme="dark"] .fi-badge-mock { background: #7c3aed33; color: #c4b5fd; border: 1px solid #7c3aed55; }
+    [data-theme="dark"] .fi-disclaimer { background: #1e293b; border-left: 4px solid #2dd4bf; padding: 10px 14px; margin: 10px 0; font-size: 0.9rem; }
+    [data-theme="light"] .fi-disclaimer { background: #ecfdf5; border-left: 4px solid #0d9488; padding: 10px 14px; margin: 10px 0; font-size: 0.9rem; color: #0f172a; }
+    [data-theme="dark"] .fi-step { display: inline-block; padding: 6px 10px; margin: 2px; border-radius: 4px; font-size: 0.75rem; background: #1e293b; }
+    [data-theme="light"] .fi-step { display: inline-block; padding: 6px 10px; margin: 2px; border-radius: 4px; font-size: 0.75rem; background: #f1f5f9; color: #0f172a; }
+    .fi-step-done { border-bottom: 2px solid #059669; }
+    .fi-step-warn { border-bottom: 2px solid #d97706; }
+    .fi-step-fail { border-bottom: 2px solid #dc2626; }
+    [data-theme="dark"] .fi-header-name { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }
+    [data-theme="light"] .fi-header-name { font-size: 1.4rem; font-weight: 700; color: #0f172a; }
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+def _is_light_theme() -> bool:
+    try:
+        theme_type = st.context.theme.type
+        if theme_type:
+            return theme_type == "light"
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        return str(st.get_option("theme.base")).lower() == "light"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _plotly_layout_kwargs(height: int = 300) -> dict[str, Any]:
+    light = _is_light_theme()
+    return {
+        "template": "plotly_white" if light else "plotly_dark",
+        "paper_bgcolor": "rgba(0,0,0,0)" if light else "#0f1724",
+        "plot_bgcolor": "#f8fafc" if light else "#1a2332",
+        "height": height,
+        "margin": dict(l=20, r=20, t=30, b=20),
+        "legend": dict(orientation="h"),
+        "font": {"color": "#0f172a" if light else "#e2e8f0"},
+    }
 
 init_db()
 
@@ -307,7 +341,7 @@ def render_review_home() -> None:
         for col, name, color in [("revenue", "매출액", "#2dd4bf"), ("operating_income", "영업이익", "#60a5fa"), ("operating_cash_flow", "영업CF", "#fbbf24")]:
             if col in financials.columns:
                 fig.add_trace(go.Scatter(x=financials["year"], y=financials[col], mode="lines+markers", name=name, line=dict(color=color)))
-        fig.update_layout(template="plotly_dark", paper_bgcolor="#0f1724", plot_bgcolor="#1a2332", height=300, margin=dict(l=20, r=20, t=30, b=20), legend=dict(orientation="h"))
+        fig.update_layout(**_plotly_layout_kwargs(300))
         st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("#### 최근 중요 공시")
