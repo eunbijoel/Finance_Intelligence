@@ -176,3 +176,24 @@ def test_ollama_default_config():
     assert config.LLM_PROVIDER == "ollama"
     assert config.LLM_MODEL == "gemma4:31b"
     assert "11434" in config.OLLAMA_BASE_URL
+
+
+def test_suggest_companies_limit_and_order():
+    from dart_client import DartClient
+
+    client = DartClient(use_mock=True)
+    suggestions = client.suggest_companies("삼성", limit=5)
+    assert 1 <= len(suggestions) <= 5
+    assert all("삼성" in s.get("corp_name", "") for s in suggestions)
+    # Exact-ish / prefix matches should come before looser ones; first item should be a Samsung company
+    assert suggestions[0]["corp_name"].startswith("삼성")
+
+
+def test_suggest_companies_stock_code():
+    from dart_client import DartClient
+
+    client = DartClient(use_mock=True)
+    suggestions = client.suggest_companies("005930", limit=3)
+    assert suggestions
+    assert suggestions[0]["stock_code"] == "005930"
+    assert client.search_company("삼성전자") is not None

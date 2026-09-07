@@ -24,6 +24,43 @@ SAMPLE_COMPANY = {
     "modify_date": "20250101",
 }
 
+# Extra mock companies for search suggestions (illustrative identifiers)
+SAMPLE_COMPANIES = [
+    SAMPLE_COMPANY,
+    {
+        "corp_code": "00164779",
+        "corp_name": "삼성SDI(주)",
+        "stock_code": "006400",
+        "corp_cls": "Y",
+        "industry": "전지·전자부품 제조업",
+        "modify_date": "20250101",
+    },
+    {
+        "corp_code": "00126362",
+        "corp_name": "삼성물산(주)",
+        "stock_code": "028260",
+        "corp_cls": "Y",
+        "industry": "종합 건설업",
+        "modify_date": "20250101",
+    },
+    {
+        "corp_code": "00164742",
+        "corp_name": "SK하이닉스(주)",
+        "stock_code": "000660",
+        "corp_cls": "Y",
+        "industry": "반도체 제조업",
+        "modify_date": "20250101",
+    },
+    {
+        "corp_code": "00401731",
+        "corp_name": "현대자동차(주)",
+        "stock_code": "005380",
+        "corp_cls": "Y",
+        "industry": "자동차 제조업",
+        "modify_date": "20250101",
+    },
+]
+
 SAMPLE_FINANCIALS = [
     {
         "year": 2022,
@@ -116,7 +153,7 @@ class DartClient:
         if self._corp_index is not None:
             return self._corp_index
         if self.use_mock:
-            self._corp_index = [SAMPLE_COMPANY]
+            self._corp_index = list(SAMPLE_COMPANIES)
             return self._corp_index
         # corpCode.xml returns a ZIP archive, not JSON
         resp = requests.get(
@@ -146,29 +183,52 @@ class DartClient:
         self._corp_index = corps
         return corps
 
-    def search_company(self, query: str) -> dict[str, Any] | None:
+    def suggest_companies(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Return up to `limit` company suggestions for autocomplete-style UI."""
         query = (query or "").strip()
-        if not query:
-            return None
-        if self.use_mock:
-            q = query.lower()
-            if q in {"005930", "삼성", "삼성전자", "samsung"}:
-                return {**SAMPLE_COMPANY, "source": "mock"}
-            return None
+        if not query or limit <= 0:
+            return []
+
+        # Lightweight aliases for mock / common English queries
+        aliases = {"samsung": "삼성", "hyundai": "현대", "sk hynix": "하이닉스", "hynix": "하이닉스"}
+        lookup = aliases.get(query.lower(), query)
+
+        source = "mock" if self.use_mock else "dart"
         corps = self._load_corp_index()
         if not corps:
-            return None
-        stock_query = query.zfill(6) if query.isdigit() else query
-        # exact stock code
+            return []
+
+        stock_query = lookup.zfill(6) if lookup.isdigit() else lookup
+        q_lower = lookup.lower()
+        scored: list[tuple[int, dict[str, Any]]] = []
+
         for c in corps:
+            name = (c.get("corp_name") or "").strip()
             code = (c.get("stock_code") or "").strip()
+            name_lower = name.lower()
+            score: int | None = None
+
             if code and code == stock_query:
-                return {**c, "source": "dart"}
-        # name contains
-        for c in corps:
-            if query in c.get("corp_name", ""):
-                return {**c, "source": "dart"}
-        return None
+                score = 0
+            elif name_lower == q_lower or name_lower == f"{q_lower}(주)":
+                score = 1
+            elif name_lower.startswith(q_lower):
+                score = 2
+            elif q_lower in name_lower:
+                score = 3
+            elif code and lookup.isdigit() and code.startswith(lookup):
+                score = 4
+
+            if score is None:
+                continue
+            scored.append((score, {**c, "source": source}))
+
+        scored.sort(key=lambda item: (item[0], item[1].get("corp_name", "")))
+        return [item[1] for item in scored[:limit]]
+
+    def search_company(self, query: str) -> dict[str, Any] | None:
+        suggestions = self.suggest_companies(query, limit=1)
+        return suggestions[0] if suggestions else None
 
     def get_financials(self, corp_code: str, years: int = 3) -> pd.DataFrame:
         if self.use_mock:

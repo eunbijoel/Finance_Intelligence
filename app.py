@@ -157,22 +157,43 @@ def render_header() -> None:
         st.markdown('<span class="fi-badge fi-badge-mock">샘플 데이터 모드</span>', unsafe_allow_html=True)
 
 
+def _load_company_into_session(company: dict[str, Any], client: DartClient | None = None) -> None:
+    client = client or DartClient()
+    st.session_state.company_query = company.get("stock_code") or company.get("corp_name") or ""
+    st.session_state.viewing_history = False
+    st.session_state.selected_analysis = None
+    st.session_state.company = company
+    st.session_state.financials = client.get_financials(company["corp_code"])
+    st.session_state.disclosures = client.get_recent_disclosures(company["corp_code"])
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown("### 기업 검색")
         query = st.text_input("기업명 / 종목코드", value=st.session_state.company_query, key="search_box")
+        client = DartClient()
+
         if st.button("조회", use_container_width=True):
             st.session_state.company_query = query
             st.session_state.viewing_history = False
             st.session_state.selected_analysis = None
-            client = DartClient()
             company = client.search_company(query)
             if company:
-                st.session_state.company = company
-                st.session_state.financials = client.get_financials(company["corp_code"])
-                st.session_state.disclosures = client.get_recent_disclosures(company["corp_code"])
+                _load_company_into_session(company, client)
             else:
                 st.warning("기업을 찾을 수 없습니다.")
+
+        suggestions = client.suggest_companies(query, limit=5) if (query or "").strip() else []
+        if suggestions:
+            st.caption("추천 기업")
+            for sug in suggestions:
+                code = (sug.get("stock_code") or "").strip() or "—"
+                label = f"{sug.get('corp_name', '—')} · {code}"
+                if st.button(label, key=f"sug_{sug.get('corp_code')}_{code}", use_container_width=True):
+                    _load_company_into_session(sug, client)
+                    st.rerun()
+        elif (query or "").strip():
+            st.caption("추천 결과 없음")
 
         st.markdown("---")
         st.markdown("### 분석 이력")
