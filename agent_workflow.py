@@ -18,6 +18,7 @@ from config import (
     MOCK_LLM,
     OLLAMA_BASE_URL,
     REVIEW_STATUSES,
+    RISK_THRESHOLDS,
 )
 from dart_client import DartClient
 from document_parser import extract_business_fields, merge_document_fields, parse_uploaded_file, get_field_primary_content
@@ -30,7 +31,14 @@ from financial_analysis import (
     run_cross_validation,
     verify_claims,
 )
-from database import get_latest_analysis, save_analysis
+from database import get_latest_analysis, next_analysis_version, save_analysis
+from versioning import (
+    PROMPT_VERSION,
+    RULE_VERSION,
+    SYSTEM_PROMPT_TEMPLATE,
+    WORKFLOW_VERSION,
+)
+import hashlib
 
 
 class LLMConnectionError(Exception):
@@ -87,11 +95,7 @@ def generate_text(prompt: str) -> str:
 
 
 def _generate_ollama(prompt: str) -> str:
-    system = (
-        "You are a financial credit review assistant for Korean corporate analysis. "
-        "Never invent numbers or facts. Use only the evidence provided in the prompt. "
-        "Respond in Korean unless asked otherwise."
-    )
+    system = SYSTEM_PROMPT_TEMPLATE
     payload = {
         "model": LLM_MODEL,
         "messages": [
@@ -345,8 +349,32 @@ def step_draft_memo(state: WorkflowState) -> WorkflowState:
     return state
 
 
-def step_save_approved(state: WorkflowState, user_edits: str = "", approved: bool = False) -> str:
+def step_save_approved(
+    state: WorkflowState,
+    user_edits: str = "",
+    approved: bool = False,
+    *,
+    case_id: str | None = None,
+    created_by: str | None = None,
+    document_manifest: list | None = None,
+) -> str:
     state.step_statuses["save_approved"] = "RUNNING"
+    summary = (state.review_memo or {}).get("summary") or ""
+    years = []
+    if not state.financials.empty and "year" in state.financials.columns:
+        years = [int(y) for y in state.financials["year"].tolist()]
+    input_snapshot = {
+        "company": {
+            "corp_code": state.company.get("corp_code"),
+            "corp_name": state.company.get("corp_name"),
+            "stock_code": state.company.get("stock_code"),
+        },
+        "financial_years": years,
+        "risk_thresholds": RISK_THRESHOLDS,
+        # never store secrets
+    }
+    analysis_version = next_analysis_version(case_id) if case_id else 1
+    prompt_hash = hashlib.sha256(SYSTEM_PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
     record = {
         "company_id": state.company.get("corp_code", state.company_query),
         "company_name": state.company.get("corp_name", state.company_query),
@@ -358,8 +386,38 @@ def step_save_approved(state: WorkflowState, user_edits: str = "", approved: boo
         "evidence": state.evidence,
         "user_edits": user_edits,
         "approved": approved,
+        "case_id": case_id,
+        "analysis_version": analysis_version,
+        "created_by": created_by,
+        "model_provider": LLM_PROVIDER,
+        "model_name": LLM_MODEL,
+        "prompt_version": PROMPT_VERSION,
+        "rule_version": RULE_VERSION,
+        "workflow_version": WORKFLOW_VERSION,
+        "input_snapshot": input_snapshot,
+        "document_manifest": document_manifest or [],
+        "ai_memo_original": summary,
+        "maker_memo_revised": user_edits or None,
+        "prompt_hash": prompt_hash,
     }
     analysis_id = save_analysis(record)
+    if case_id:
+        from case_management import set_current_analysis
+        from audit_service import write_audit
+        from database import get_user
+
+        set_current_analysis(case_id, analysis_id)
+        actor = get_user(created_by) if created_by else None
+        write_audit(
+            action="ANALYSIS_RUN",
+            actor_id=created_by,
+            actor_role=(actor or {}).get("role"),
+            case_id=case_id,
+            analysis_id=analysis_id,
+            entity_type="analysis",
+            entity_id=analysis_id,
+            after={"analysis_version": analysis_version, "approved": approved},
+        )
     state.step_statuses["save_approved"] = "COMPLETED" if approved else "NEEDS_REVIEW"
     return analysis_id
 

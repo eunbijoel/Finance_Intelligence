@@ -16,16 +16,21 @@
 
 | 사용자        | 이런 일에 씁니다                                   |
 | ---------- | ------------------------------------------- |
-| 여신·심사 담당   | 공시 재무와 사업계획서를 빠르게 대조하고, 놓치기 쉬운 위험·확인 질문을 정리 |
+| 여신·심사 담당   | 심사 건 접수 → Maker 작성 → Checker 검토·승인 프로토타입 흐름 |
 | 기업 금융·리서치  | 최근 재무 변화·공시·문서 간 불일치를 한 화면에서 파악             |
-| 내부 검토 워크플로 | 분석 결과를 저장하고, 이전 분석과 비교·재열람                  |
+| 내부 검토 워크플로 | 분석 버전·감사로그·결과 재현으로 검토 과정을 남김                  |
 
 
-1. 기업 선택 (종목코드 / 기업명, 추천 검색 지원)
-2. (선택) 사업계획서·엑셀 등을 첨부
-3. **AI 통합검토** 실행
-4. 위험 신호·교차검증·검토 메모를 보고, 필요하면 수정 후 **승인·저장**
-5. Markdown 보고서를 내려받기 또는 사이드바 **분석 이력**에서 다시 열람 가능
+**권장 흐름 (심사 건 기반)**
+
+1. 사이드바에서 **Maker** 계정 선택 (프로토타입 — 실제 로그인/SSO 아님)
+2. **새 심사 건 생성** (금액·용도·상품·기한·Checker)
+3. 업무함에서 건을 열고 **검토 시작**
+4. 기업자료 업로드 → **AI 통합검토** → Maker 의견 작성 → Checker 검토 요청
+5. **Checker** 계정으로 전환 → 원문/수정본 비교 → 수정 요청 또는 **검토 승인**
+6. 「검토 승인」= **대출 승인이 아님**. 검토 메모·자료 검토 완료를 의미합니다.
+
+기존처럼 사이드바 **기업 검색**만으로도 조회·분석할 수 있습니다 (레거시 호환).
 
 ---
 
@@ -43,12 +48,13 @@ streamlit run app.py --server.port 8506
 
 브라우저에서 `http://localhost:8506` 을 엽니다.
 
-1. 왼쪽 **기업 검색**에 `삼성` 또는 `005930` 입력
-2. 아래에 뜨는 **추천 기업** 버튼을 누르거나 **조회** 클릭
-3. 탭 **기업 검토**에서 재무 변화·공시 확인
-4. (선택) **기업자료 검토** 탭에서 `data/sample_business_plan.txt` 업로드
-5. **Agent Workspace**에서 **AI 통합검토 실행** → 위험 신호·메모·교차검증 확인
-6. 필요 시 **승인 후 저장**, **Markdown 보고서 다운로드**
+1. 사이드바에서 `김심사 (MAKER)` 선택 → **새 심사 건 생성**
+2. 기업명 `삼성전자`, Checker `checker01`, 금액·용도·상품·기한 입력 후 생성
+3. **검토 시작** → **기업·Agent 검토**로 이동
+4. **기업자료 검토**에서 `data/sample_business_plan.txt` 업로드 (SHA-256·Manifest 저장)
+5. **Agent Workspace**에서 AI 통합검토 → 의견 작성 후 저장 → Checker 검토 요청
+6. 사용자를 `박책임 (CHECKER)`로 바꾸고 **Checker 검토** 탭에서 승인(체크박스 3개 필수)
+7. **분석·감사 이력**에서 감사로그·재현성 확인
 
 실제 OpenDART 기업을 쓰려면 아래 [설정](#설정-env)에서 `DART_API_KEY`를 넣습니다.
 
@@ -56,17 +62,38 @@ streamlit run app.py --server.port 8506
 
 ## 화면별 안내
 
-**사이드바** + **중앙 3개 탭**으로 구성됩니다.
+**사이드바** + **심사 업무함 / 상세 / 검토 탭**으로 구성됩니다.
 
 ### 왼쪽 사이드바
 
 
-| 영역        | 하는 일                                                                                  |
-| --------- | ------------------------------------------------------------------------------------- |
-| **기업 검색** | 기업명 또는 종목코드 입력. 입력 중 **추천 기업 최대 5개**가 버튼으로 표시됩니다. 클릭하면 바로 해당 기업 데이터가 로드됩니다.           |
-| **조회**    | 입력한 키워드로 기업을 찾아 재무·공시를 불러옵니다.                                                         |
-| **분석 이력** | 예전에 **승인·저장**한 검토 결과 목록. 클릭하면 당시 상태·비율·위험 신호·메모를 다시 볼 수 있습니다. 「현재 분석으로 돌아가기」로 빠져나옵니다. |
+| 영역 | 하는 일 |
+| ---- | ------ |
+| **현재 사용자** | Maker/Checker/Admin 프로토타입 전환 (SSO 아님) |
+| **심사 업무함** | 건 목록·필터·요약 카드 |
+| **새 심사 건 생성** | 심사번호 `CR-YYYYMMDD-####` 자동 발급 |
+| **기업·Agent 검토** | 기존 기업/문서/Agent + Checker + 감사 탭 |
+| **설정·버전** | Prompt/Rule/Workflow 버전 상수 |
+| **기업 검색 (레거시)** | 건 없이 기업만 조회하는 기존 방식 |
+| **분석 이력 (레거시)** | case_id 없는 과거 분석도 조회 가능 |
 
+
+---
+
+### 심사 업무함 · Maker–Checker · 감사로그
+
+| 기능 | 설명 |
+| ---- | ---- |
+| **심사 건** | `review_cases`에 저장. 상태: 접수→검토→Checker→승인/수정요청→종결 |
+| **프로토타입 사용자** | maker01/02(MAKER), checker01(CHECKER), admin01(ADMIN). 동일인 Maker+Checker 불가 |
+| **권한** | Maker는 승인 불가. Checker만 검토 승인·수정 요청. **실제 SSO/LDAP 아님** |
+| **검토 승인** | 대출 승인 아님. AI·Maker 검토 자료의 Checker 검토 완료 |
+| **문서 Manifest** | 업로드 시 SHA-256, `data/uploads/` 저장 (Git 제외) |
+| **버전** | `versioning.py`의 Prompt/Rule/Workflow + 분석 시 모델·snapshot 저장 (비밀값 제외) |
+| **감사로그** | 생성·상태변경·문서·분석·의견·승인·재현 — **수정·삭제 UI/API 없음** |
+| **결과 재현** | REPRODUCIBLE / PARTIAL / NOT — LLM 동일 출력은 보장하지 않음 |
+
+워크스페이스 탭: **기업 검토** · **기업자료 검토** · **Agent Workspace** · **Checker 검토** · **분석·감사 이력**
 
 ---
 
@@ -206,18 +233,23 @@ Ollama가 꺼져 있어도 **규칙 기반 분석은 그대로** 동작하고, �
 
 ```
 finance_intelligence/
-├── app.py                 # Streamlit UI (기업 검토 / 자료 / Agent)
+├── app.py                 # Streamlit UI (업무함 / 상세 / 검토 탭)
+├── case_management.py     # 심사 건 생성·상태 전환·의견
+├── audit_service.py       # 감사로그 (append-only)
+├── document_registry.py   # SHA-256·업로드·Manifest
+├── versioning.py          # Prompt/Rule/Workflow·상태·역할 상수
+├── reproduction.py        # 재현성 판정·비교
 ├── dart_client.py         # OpenDART + 샘플 데이터 + 검색·추천
 ├── document_parser.py     # 업로드 문서 파싱·필드 추출·다중문서 병합
 ├── financial_analysis.py  # 비율 계산, 위험 규칙, 교차검증, 근거 검증
-├── agent_workflow.py      # 단계형 Agent + LLM(Ollama) adapter
-├── database.py            # SQLite Decision Memory
+├── agent_workflow.py      # 단계형 Agent + LLM adapter + 버전드 저장
+├── database.py            # SQLite (analyses/cases/users/docs/audit)
 ├── config.py              # 환경변수, 위험 임계값
 ├── ui_helpers.py          # 표시 포맷, 요약 문장, Markdown 보고서
-├── data/                  # DB, sample_business_plan.txt
-├── tests/                 # pytest
+├── data/                  # DB, uploads/, sample_business_plan.txt
+├── tests/                 # pytest (핵심 + 심사 건)
 ├── requirements.txt
-├── README.md              # 이 문서
+├── README.md
 └── README_EN.md
 ```
 ---
@@ -226,10 +258,13 @@ finance_intelligence/
 - 공시 **본문 PDF 자동 정밀 파싱**은 범위 밖 (목록·링크 중심)
 - Excel/DOCX 보고서 내보내기는 TODO (Markdown은 지원)
 - LLM은 **숫자를 새로 만들지 않도록** 프롬프트되어 있으나, 최종 판단은 항상 사람이 합니다
+- 사용자 선택은 **프로토타입**입니다. SSO, LDAP, 전자결재, 은행 내부망 연동은 없습니다
+- 결과 재현은 입력·버전·문서 해시 복원/비교 중심이며, LLM 텍스트 동일성을 보장하지 않습니다
 
 ## TODO
 
 - Excel / DOCX 검토보고서 내보내기  
 - 공시 본문·주석 연계 고도화
+- 실제 인증·결재 연동 (기관 환경)
 
 질문이나 개선 아이디어가 있으면 이슈/PR로 남겨 주세요.
