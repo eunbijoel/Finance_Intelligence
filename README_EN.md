@@ -79,7 +79,9 @@ Ratios, risk rules, cross-checks, document hashing, AI vs human memo separation,
 | -------- | ----------- |
 | `DART_API_KEY` | OpenDART API key |
 | `LLM_PROVIDER` | `ollama` (default) or `openai` |
+| `OLLAMA_BASE_URL` | Ollama base URL |
 | `LLM_MODEL` | Default `gemma4:31b` |
+| `LLM_BASE_URL` / `LLM_API_KEY` | Used when using OpenAI |
 | `FI_MOCK_LLM` | `true` skips LLM |
 | `FI_DB_PATH` | SQLite path |
 
