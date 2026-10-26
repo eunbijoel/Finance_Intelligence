@@ -132,14 +132,6 @@ def get_case(case_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def get_case_by_number(case_number: str) -> dict[str, Any] | None:
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM review_cases WHERE case_number = ?", (case_number,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
 def list_cases(
     *,
     search: str | None = None,
@@ -296,44 +288,6 @@ def _assert_transition_permission(
             raise CaseError("Checker 검토 요청은 Maker가 수행합니다.")
         if role == ROLE_MAKER and case.get("maker_id") != actor_id and role != "ADMIN":
             raise CaseError("본인에게 배정된 Maker 건만 처리할 수 있습니다.")
-
-
-def update_case_assignees(
-    case_id: str,
-    *,
-    maker_id: str | None = None,
-    checker_id: str | None = None,
-    actor_id: str,
-) -> dict[str, Any]:
-    case = get_case(case_id)
-    if not case:
-        raise CaseError("심사 건을 찾을 수 없습니다.")
-    new_maker = maker_id or case["maker_id"]
-    new_checker = checker_id or case["checker_id"]
-    if new_maker == new_checker:
-        raise CaseError("동일 사용자를 Maker와 Checker로 지정할 수 없습니다.")
-    before = {"maker_id": case["maker_id"], "checker_id": case["checker_id"]}
-    with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE review_cases SET maker_id = ?, checker_id = ?,
-                updated_at = ?, version = version + 1
-            WHERE case_id = ?
-            """,
-            (new_maker, new_checker, _now_iso(), case_id),
-        )
-    actor = get_user(actor_id)
-    write_audit(
-        action="ASSIGNEES_CHANGED",
-        actor_id=actor_id,
-        actor_role=(actor or {}).get("role"),
-        case_id=case_id,
-        entity_type="review_case",
-        entity_id=case_id,
-        before=before,
-        after={"maker_id": new_maker, "checker_id": new_checker},
-    )
-    return get_case(case_id) or {}
 
 
 def set_current_analysis(case_id: str, analysis_id: str) -> None:
