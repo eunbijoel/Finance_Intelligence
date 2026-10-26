@@ -7,7 +7,6 @@ from typing import Any
 
 import pandas as pd
 
-from document_parser import get_field_entries
 from financial_analysis import compute_ratio_changes, compute_yoy_changes
 
 FINANCIAL_LABELS = {
@@ -185,102 +184,6 @@ def build_what_changed(
     if disclosures and not comparison:
         lines.append(f"최근 공시 {len(disclosures)}건 확인")
     return lines
-
-
-def build_why_important(
-    yoy_changes: list[dict[str, Any]],
-    ratio_changes: list[dict[str, Any]],
-    risk_signals: list[dict[str, Any]],
-) -> list[str]:
-    lines: list[str] = []
-    rev = next((c for c in yoy_changes if c["metric"] == "revenue"), None)
-    op = next((c for c in yoy_changes if c["metric"] == "operating_income"), None)
-    cf = next((c for c in yoy_changes if c["metric"] == "operating_cash_flow"), None)
-    if rev and rev["change_pct"] > 0 and op and op["change_pct"] < 0:
-        lines.append("외형 성장에도 수익성이 악화되고 있습니다.")
-    if cf and cf["change_pct"] < -10:
-        lines.append("영업현금흐름 감소로 실제 현금창출력 확인이 필요합니다.")
-    for rc in ratio_changes:
-        if rc["metric"] == "debt_ratio" and rc["delta_pp"] > 5:
-            lines.append("부채비율 상승으로 재무 레버리지 점검이 필요합니다.")
-        if rc["metric"] == "current_ratio" and rc["delta_pp"] < -5:
-            lines.append("유동비율 하락으로 단기 유동성 부담 점검이 필요합니다.")
-    for sig in risk_signals:
-        if sig.get("rule_id") == "SHORT_TERM_DEBT_SURGE":
-            lines.append("단기차입금 증가로 유동성 부담 점검이 필요합니다.")
-    if not lines:
-        lines.append("현재 확보된 자료 기준 특별히 강조할 변화 패턴이 없습니다. 추가 검토가 필요할 수 있습니다.")
-    return lines[:5]
-
-
-def build_action_items(
-    risk_signals: list[dict[str, Any]],
-    missing_items: list[str],
-    document_fields: dict[str, Any],
-    max_items: int = 5,
-) -> list[str]:
-    items: list[str] = []
-    seen: set[str] = set()
-    for sig in risk_signals:
-        q = sig.get("review_question", "").strip()
-        if q and q not in seen:
-            items.append(q)
-            seen.add(q)
-    for m in missing_items:
-        if m not in seen:
-            items.append(f"부족한 자료: {m}")
-            seen.add(m)
-    unverified = get_field_entries(document_fields, "unverified_items")
-    if unverified:
-        content = unverified[0].get("content", "")
-        if content and content != "없음":
-            items.append(f"문서 미확인 항목: {content}")
-    return items[:max_items]
-
-
-def compute_evidence_coverage(review_memo: dict[str, Any], claim_verifications: list[dict[str, Any]]) -> str:
-    sections = (review_memo or {}).get("sections", {})
-    section_keys = [
-        "1_company_overview", "2_financial_status", "3_ratio_analysis",
-        "4_positive_factors", "5_risk_signals", "6_inconsistencies",
-        "7_follow_up", "10_summary_draft",
-    ]
-    if not sections and not claim_verifications:
-        return "검토 전"
-    supported_sections = 0
-    for key in section_keys:
-        content = sections.get(key)
-        if not content:
-            continue
-        if key == "11_evidence_index":
-            continue
-        has_evidence = bool(content) and content not in ("—", "재무 데이터 없음", ["탐지된 위험 신호 없음"])
-        if has_evidence:
-            supported_sections += 1
-    if claim_verifications:
-        supported = sum(1 for v in claim_verifications if v.get("status") == "supported")
-        total = len(claim_verifications)
-        if total:
-            return f"{round(supported / total * 100)}%"
-    if supported_sections == 0:
-        return "계산 불가"
-    return f"{round(supported_sections / len(section_keys) * 100)}%"
-
-
-def get_overall_status(workflow_state: Any | None) -> str:
-    if workflow_state is None:
-        return "분석 전"
-    memo = getattr(workflow_state, "review_memo", None) or {}
-    return memo.get("overall_status", "분석 전")
-
-
-def status_color_class(status: str) -> str:
-    return {
-        "검토상 특이사항 없음": "fi-low",
-        "추가 확인 필요": "fi-medium",
-        "중요 위험 신호 발견": "fi-high",
-        "분석 전": "fi-muted",
-    }.get(status, "fi-muted")
 
 
 def generate_markdown_report(
