@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "credit-review-prompt-v1"
-RULE_VERSION = "financial-risk-rules-v1"
-WORKFLOW_VERSION = "case-workflow-v1"
-SYSTEM_PROMPT_TEMPLATE = (
+PROMPT_VERSION: str = "credit-review-prompt-v1"
+RULE_VERSION: str = "financial-risk-rules-v1"
+WORKFLOW_VERSION: str = "case-workflow-v1"
+SYSTEM_PROMPT_TEMPLATE: str = (
     "You are a financial credit review assistant for Korean corporate analysis. "
     "Never invent numbers or facts. Use only the evidence provided in the prompt. "
     "Respond in Korean unless asked otherwise."
 )
 
 # Prototype roles — not real SSO/LDAP authentication
-ROLE_MAKER = "MAKER"
-ROLE_CHECKER = "CHECKER"
-ROLE_ADMIN = "ADMIN"
+ROLE_MAKER: str = "MAKER"
+ROLE_CHECKER: str = "CHECKER"
+ROLE_ADMIN: str = "ADMIN"
 
-CASE_STATUSES = (
+CASE_STATUSES: tuple[str, ...] = (
     "RECEIVED",
     "DOCUMENT_REQUESTED",
     "IN_REVIEW",
@@ -26,7 +26,7 @@ CASE_STATUSES = (
     "CLOSED",
 )
 
-CASE_STATUS_LABELS = {
+CASE_STATUS_LABELS: dict[str, str] = {
     "RECEIVED": "접수",
     "DOCUMENT_REQUESTED": "자료 보완 요청",
     "IN_REVIEW": "Maker 검토 중",
@@ -36,7 +36,7 @@ CASE_STATUS_LABELS = {
     "CLOSED": "종결",
 }
 
-PRIORITIES = ("LOW", "NORMAL", "HIGH", "URGENT")
+PRIORITIES: tuple[str, ...] = ("LOW", "NORMAL", "HIGH", "URGENT")
 
 # Allowed status transitions: from -> set of to
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
