@@ -51,7 +51,7 @@ streamlit run app.py --server.port 8506
 | **New company review** | Create and jump to document upload |
 | **Completed reviews** | Approved / closed cases |
 
-**Admin info** (collapsed): user switcher, versions, company search without a case, legacy history.
+**Admin info** (collapsed): user switcher, versions, company search without a case.
 
 ---
 

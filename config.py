@@ -38,19 +38,3 @@ RISK_THRESHOLDS = {
     "plan_revenue_optimism_pp": 25.0,
     "plan_financial_mismatch_pct": 10.0,
 }
-
-WORKFLOW_STATUSES = {
-    "PENDING",
-    "RUNNING",
-    "COMPLETED",
-    "FAILED",
-    "NEEDS_REVIEW",
-    "NEEDS_MORE_INFORMATION",
-}
-
-REVIEW_STATUSES = {
-    "검토상 특이사항 없음",
-    "추가 확인 필요",
-    "중요 위험 신호 발견",
-    "분석 전",
-}

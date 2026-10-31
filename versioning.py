@@ -26,15 +26,7 @@ CASE_STATUSES: tuple[str, ...] = (
     "CLOSED",
 )
 
-CASE_STATUS_LABELS: dict[str, str] = {
-    "RECEIVED": "접수",
-    "DOCUMENT_REQUESTED": "자료 보완 요청",
-    "IN_REVIEW": "Maker 검토 중",
-    "CHECKER_REVIEW": "Checker 검토 대기",
-    "CHANGES_REQUESTED": "수정 요청",
-    "APPROVED": "검토 승인",
-    "CLOSED": "종결",
-}
+# Display labels live in review_ux.STATUS_UI_LABELS (single source of truth).
 
 PRIORITIES: tuple[str, ...] = ("LOW", "NORMAL", "HIGH", "URGENT")
 

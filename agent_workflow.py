@@ -17,7 +17,6 @@ from config import (
     LLM_TIMEOUT_SEC,
     MOCK_LLM,
     OLLAMA_BASE_URL,
-    REVIEW_STATUSES,
     RISK_THRESHOLDS,
 )
 from dart_client import DartClient

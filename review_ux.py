@@ -30,13 +30,6 @@ STEP_LABELS = {
     4: "검토 완료",
 }
 
-# Risk severity → user buckets
-SEVERITY_BUCKET = {
-    "high": "중요",
-    "medium": "확인 필요",
-    "low": "확인 필요",
-}
-
 
 def role_label(role: str | None) -> str:
     return ROLE_UI_LABELS.get(role or "", role or "—")

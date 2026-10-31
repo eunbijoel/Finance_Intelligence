@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from agent_workflow import run_workflow, step_save_approved
+from agent_workflow import WorkflowState, run_workflow, step_save_approved
 from audit_service import list_audit_logs, write_audit
 from case_management import (
     CaseError,
@@ -22,7 +23,7 @@ from case_management import (
 from database import get_analysis, get_user, list_analyses
 from document_parser import extract_business_fields, get_field_entries, parse_uploaded_file
 from document_registry import build_manifest, list_documents, register_document
-from reproduction import assess_reproducibility, compare_analyses as compare_repro
+from reproduction import assess_reproducibility
 from review_ux import (
     STEP_LABELS,
     case_subtitle,
@@ -54,8 +55,6 @@ FIELD_LABELS = {
     "risk_factors": "위험요인",
     "unverified_items": "문서에서 확인되지 않은 항목",
 }
-
-REQUIRED_HINTS = ["사업계획서", "재무자료", "상환계획"]
 
 
 def _case() -> dict[str, Any] | None:
@@ -623,13 +622,37 @@ def render_step_checker(case: dict[str, Any], user: dict[str, Any]) -> None:
                 except CaseError as exc:
                     st.error(str(exc))
 
-    if analyses and st.session_state.get("workflow_state"):
-        ws = st.session_state.workflow_state
+    ws = st.session_state.get("workflow_state")
+    if analyses and isinstance(ws, WorkflowState):
         try:
-            md = generate_markdown_report(ws)
-            st.download_button("Markdown 보고서 다운로드", md, file_name=report_filename(ws.company or {}))
-        except Exception:  # noqa: BLE001
-            pass
+            doc_names = []
+            for d in ws.documents or []:
+                if isinstance(d, dict):
+                    doc_names.append(d.get("filename") or d.get("name") or d.get("original_name") or "문서")
+                else:
+                    doc_names.append(str(d))
+            analysis_date = (analyses[0].get("analysis_date") if analyses else None) or date.today().isoformat()
+            company = ws.company or st.session_state.get("company") or {
+                "corp_name": case.get("company_name") or "기업"
+            }
+            md = generate_markdown_report(
+                company=company,
+                analysis_date=str(analysis_date)[:10],
+                documents=doc_names,
+                financials=ws.financials if isinstance(ws.financials, pd.DataFrame) else pd.DataFrame(),
+                ratios=ws.ratios or {},
+                risk_signals=ws.risk_signals or [],
+                cross_checks=ws.cross_checks or [],
+                review_memo=ws.review_memo or {},
+                evidence=ws.evidence or [],
+            )
+            st.download_button(
+                "Markdown 보고서 다운로드",
+                md,
+                file_name=report_filename(company, str(analysis_date)[:10]),
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.warning(f"Markdown 보고서를 만들지 못했습니다: {exc}")
 
 
 def render_review_flow(*, current_user: dict[str, Any]) -> None:

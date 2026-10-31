@@ -9,7 +9,7 @@ import streamlit as st
 
 from config import USE_DART_MOCK
 from dart_client import DartClient
-from database import get_user, init_db, list_analyses, list_users
+from database import get_user, init_db, list_users
 from review_ux import role_label
 from versioning import PROMPT_VERSION, RULE_VERSION, WORKFLOW_VERSION
 from views.completed_view import render_completed, render_completed_detail
@@ -62,8 +62,6 @@ for key, default in [
     ("upload_fields", {}),
     ("disclosures", []),
     ("cached_uploads", []),
-    ("viewing_history", False),
-    ("selected_analysis", None),
     ("current_user_id", "maker01"),
     ("selected_case_id", None),
     ("nav_page", "inbox"),
@@ -87,7 +85,6 @@ def _load_company_query(query: str) -> None:
     st.session_state.company = company
     st.session_state.financials = client.get_financials(company["corp_code"])
     st.session_state.disclosures = client.get_recent_disclosures(company["corp_code"])
-    st.session_state.viewing_history = False
 
 
 def render_sidebar() -> None:
@@ -145,30 +142,6 @@ def render_sidebar() -> None:
                     _load_company_query(code if code != "—" else sug.get("corp_name", ""))
                     st.rerun()
 
-            st.markdown("**분석 이력 (레거시)**")
-            for a in list_analyses(limit=5):
-                if st.button(
-                    f"{a['company_name'][:12]} · {a['analysis_date']}",
-                    key=f"leg_{a['analysis_id']}",
-                ):
-                    st.session_state.selected_analysis = a
-                    st.session_state.nav_page = "legacy_history"
-                    st.rerun()
-
-
-def render_legacy_history() -> None:
-    a = st.session_state.selected_analysis
-    if not a:
-        st.info("이력이 없습니다.")
-        return
-    st.markdown("## 저장된 분석 (레거시)")
-    memo = a.get("review_memo") or {}
-    st.write(a.get("company_name"), a.get("analysis_date"), memo.get("overall_status"))
-    st.write(memo.get("summary") or "—")
-    if st.button("내 검토 업무로"):
-        st.session_state.nav_page = "inbox"
-        st.rerun()
-
 
 def main() -> None:
     render_sidebar()
@@ -183,8 +156,6 @@ def main() -> None:
         render_completed_detail(current_user=user)
     elif page == "review_flow":
         render_review_flow(current_user=user)
-    elif page == "legacy_history":
-        render_legacy_history()
     else:
         render_inbox(current_user=user, load_company=_load_company_query)
 
