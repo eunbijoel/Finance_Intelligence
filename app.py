@@ -72,6 +72,12 @@ for key, default in [
 
 
 def _current_user() -> dict[str, Any]:
+    """Return the signed-in user dict for the active Streamlit session.
+
+    Looks up ``st.session_state.current_user_id`` via ``get_user``. If the
+    user is missing from storage, returns a minimal MAKER fallback so the UI
+    can still render.
+    """
     uid = st.session_state.current_user_id
     return get_user(uid) or {"user_id": uid, "display_name": uid, "role": "MAKER"}
 
